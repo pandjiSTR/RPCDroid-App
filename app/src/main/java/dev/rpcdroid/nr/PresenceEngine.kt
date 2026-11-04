@@ -50,6 +50,18 @@ object PresenceEngine {
     private var ignoredPkgs: Set<String> = emptySet()
     private var authFailed = false
 
+    /** Dipanggil saat sesi game mulai/selesai; detektor memakainya untuk menyalakan/mematikan pemeriksaan berkala. */
+    @Volatile var sessionHook: ((Boolean) -> Unit)? = null
+    @Volatile var hasSession = false
+        private set
+
+    private fun setSession(active: Boolean) {
+        if (hasSession == active) return
+        hasSession = active
+        DebugLog.d("ENGINE", if (active) "session START ${current?.pkg}" else "session END")
+        sessionHook?.invoke(active)
+    }
+
     var state by mutableStateOf(EngineState())
         private set
 
@@ -84,6 +96,23 @@ object PresenceEngine {
     /** Setelah unlock, app terakhir di depan hampir pasti masih game tadi; event window belum tentu datang lagi. */
     fun onUserPresent() = exec.execute { evaluate(lastFg) }
 
+    /**
+     * Hasil pemeriksaan jendela aktif (mode Accessibility). Ini sumber kebenaran: tidak bergantung pada event
+     * yang bisa hilang. Null / systemui / IME = tidak pasti, jangan ubah apa pun.
+     */
+    fun onVerified(pkg: String?) = exec.execute {
+        if (prefs.mode != Prefs.MODE_A11Y) return@execute
+        val c = current ?: return@execute
+        when {
+            pkg == null || isIgnored(pkg) -> {}
+            pkg == c.pkg -> cancelLinger()                       // game masih di depan
+            else -> { lastFg = pkg; scheduleLinger() }           // jendela aktif bukan game
+        }
+    }
+
+    /** Service detektor dimatikan / app ditutup rapi: hapus status dan tutup socket. */
+    fun shutdown() = exec.execute { cancelLinger(); endSession() }
+
     /** Token / switch utama / mode berubah: mulai ulang bersih. */
     fun onConfigChanged() = exec.execute {
         authFailed = false
@@ -100,7 +129,7 @@ object PresenceEngine {
     // ── logika ──────────────────────────────────────────────────────────────
 
     private fun evaluate(pkg: String?) {
-        if (pkg != null && isIgnored(pkg)) return
+        if (pkg != null && isIgnored(pkg)) { DebugLog.d("ENGINE", "skip ignored $pkg"); return }
         lastFg = pkg
         val game = pkg?.let { catalog.lookup(it) }?.takeIf { prefs.enabled && it.pkg !in prefs.disabled }
         if (game != null) {
@@ -108,6 +137,7 @@ object PresenceEngine {
             if (current?.pkg != game.pkg) {
                 current = game; startMs = System.currentTimeMillis()
                 state = state.copy(gamePkg = game.pkg, gameName = game.name, startMs = startMs)
+                setSession(true)
             }
             if (ensureGateway()) pushPresence()
         } else if (current != null) {
@@ -123,7 +153,7 @@ object PresenceEngine {
         gateway = DiscordGateway(token, ws, exec, object : DiscordGateway.Events {
             override fun onReady(user: String) { state = state.copy(phase = Phase.CONNECTED, user = user) }
             override fun onFatal(code: Int, reason: String) {
-                authFailed = true; gateway = null; current = null
+                authFailed = true; gateway = null; current = null; setSession(false)
                 state = EngineState(Phase.AUTH_FAILED)
             }
             override fun onState(text: String) { state = state.copy(phase = Phase.RECONNECTING) }
@@ -157,14 +187,21 @@ object PresenceEngine {
 
     private fun scheduleLinger() {
         if (linger?.isDone == false) return
-        linger = exec.schedule({ endSession() }, lingerSeconds(), TimeUnit.SECONDS)
+        DebugLog.d("ENGINE", "linger ${lingerSeconds()}s started")
+        linger = exec.schedule({
+            // Exception di task terjadwal ditelan diam-diam oleh executor; catat agar tidak tak terlihat
+            try { endSession() } catch (e: Exception) { DebugLog.d("ENGINE", "endSession FAILED ${e.javaClass.simpleName}") }
+        }, lingerSeconds(), TimeUnit.SECONDS)
     }
 
     /** Shizuku tahu game mati secara pasti, jadi jeda "di latar belakang" boleh jauh lebih panjang. */
     private fun lingerSeconds(): Long =
         if (prefs.mode == Prefs.MODE_SHIZUKU) prefs.bgTimeoutMin * 60L else prefs.lingerSec.toLong()
 
-    private fun cancelLinger() { linger?.cancel(false); linger = null }
+    private fun cancelLinger() {
+        if (linger != null) DebugLog.d("ENGINE", "linger cancelled")
+        linger?.cancel(false); linger = null
+    }
 
     private fun endSession() {
         linger = null
@@ -172,6 +209,7 @@ object PresenceEngine {
         gateway?.setPresence(null)
         gateway?.close(); gateway = null
         current = null
+        setSession(false)
         state = if (authFailed) EngineState(Phase.AUTH_FAILED) else EngineState()
     }
 

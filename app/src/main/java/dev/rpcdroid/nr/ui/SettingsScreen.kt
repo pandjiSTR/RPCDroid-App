@@ -2,7 +2,15 @@ package dev.rpcdroid.nr.ui
 
 import android.content.Intent
 import android.provider.Settings
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.unit.sp
+import dev.rpcdroid.nr.DebugLog
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -39,6 +47,7 @@ fun SettingsScreen(m: UiModel, modifier: Modifier) {
     var bgVal by remember { mutableFloatStateOf(m.bgMin.toFloat()) }
     var showToken by remember { mutableStateOf(false) }
     var confirmClear by remember { mutableStateOf(false) }
+    var showLog by remember { mutableStateOf(false) }
 
     Column(
         modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
@@ -124,6 +133,15 @@ fun SettingsScreen(m: UiModel, modifier: Modifier) {
             OutlinedButton({ ctx.safeStart(ctx.appInfoIntent()) }, Modifier.fillMaxWidth()) { Text("Info aplikasi") }
         }
 
+        SectionCard("Diagnostik") {
+            Text(
+                "Jika status Discord tidak hilang setelah game ditutup: coba ulangi, buka log ini, salin, dan kirim. " +
+                    "Log hanya di memori, tanpa token, tapi berisi nama package app yang kamu buka.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            OutlinedButton({ showLog = true }, Modifier.fillMaxWidth()) { Text("Lihat log") }
+        }
+
         SectionCard("Tentang") {
             val ver = runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull()
             Text(
@@ -146,6 +164,31 @@ fun SettingsScreen(m: UiModel, modifier: Modifier) {
             },
             confirmButton = { TextButton({ m.saveToken(t); showToken = false }, enabled = t.isNotBlank()) { Text("Simpan") } },
             dismissButton = { TextButton({ showToken = false }) { Text("Batal") } },
+        )
+    }
+    if (showLog) {
+        var text by remember { mutableStateOf(DebugLog.dump()) }
+        AlertDialog(
+            onDismissRequest = { showLog = false },
+            title = { Text("Log diagnostik (terbaru di atas)") },
+            text = {
+                Column {
+                    Row {
+                        TextButton({ text = DebugLog.dump() }) { Text("Muat ulang") }
+                        TextButton({ DebugLog.clear(); text = "" }) { Text("Bersihkan") }
+                    }
+                    Column(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
+                        Text(text.ifEmpty { "(kosong)" }, fontFamily = FontFamily.Monospace, fontSize = 10.sp)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton({
+                    ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("rpcnr-log", text))
+                    Toast.makeText(ctx, "Log disalin", Toast.LENGTH_SHORT).show()
+                }) { Text("Salin") }
+            },
+            dismissButton = { TextButton({ showLog = false }) { Text("Tutup") } },
         )
     }
     if (confirmClear) {

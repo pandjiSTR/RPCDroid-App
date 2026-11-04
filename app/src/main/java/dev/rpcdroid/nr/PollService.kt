@@ -63,6 +63,7 @@ class PollService : Service() {
     }
 
     override fun onDestroy() {
+        PresenceEngine.shutdown()
         h.removeCallbacksAndMessages(null); ht.quitSafely()
         rx?.let { runCatching { unregisterReceiver(it) } }
         super.onDestroy()

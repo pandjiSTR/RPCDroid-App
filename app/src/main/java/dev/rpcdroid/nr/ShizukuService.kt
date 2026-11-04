@@ -79,6 +79,7 @@ class ShizukuService : Service() {
     }
 
     override fun onDestroy() {
+        PresenceEngine.shutdown()
         Shizuku.removeBinderReceivedListener(onBinder)
         Shizuku.removeBinderDeadListener(onDead)
         Shizuku.removeRequestPermissionResultListener(onPerm)

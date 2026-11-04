@@ -46,10 +46,11 @@ class DiscordGateway(
     private var ready = false
     private var desired: Presence? = null
 
-    fun open() { closed = false; connect() }
+    fun open() { closed = false; DebugLog.d("GW", "open"); connect() }
 
     /** Menutup socket dengan 1000: sesi Discord berakhir, presence otomatis hilang. */
     fun close() {
+        DebugLog.d("GW", "close (ready=$ready)")
         closed = true
         hbTask?.cancel(false); retryTask?.cancel(false)
         gen++                       // buang callback socket lama
@@ -57,7 +58,10 @@ class DiscordGateway(
         ready = false
     }
 
-    fun setPresence(p: Presence?) { desired = p; if (ready) sendPresence() }
+    fun setPresence(p: Presence?) {
+        desired = p
+        if (ready) sendPresence() else DebugLog.d("GW", "presence deferred (not ready): ${p?.name ?: "CLEAR"}")
+    }
 
     // ── koneksi ─────────────────────────────────────────────────────────────
 
@@ -83,6 +87,7 @@ class DiscordGateway(
 
     private fun onDisconnect(code: Int, reason: String) {
         hbTask?.cancel(false); ready = false
+        DebugLog.d("GW", "disconnect code=$code closedByUs=$closed")
         if (closed) return
         if (code in FATAL) { closed = true; events.onFatal(code, reason); return }
         if (code == 4007 || code == 4009) { sessionId = null; seq = null; resumeUrl = null }
@@ -133,6 +138,7 @@ class DiscordGateway(
                 val name = u?.optString("username").orEmpty()
                 val disc = u?.optString("discriminator", "0").orEmpty()
                 ready = true; attempt = 0
+                DebugLog.d("GW", "READY")
                 events.onReady(if (disc.isEmpty() || disc == "0") name else "$name#$disc")
                 if (desired != null) sendPresence()
             }
@@ -169,6 +175,7 @@ class DiscordGateway(
 
     private fun sendPresence() {
         val p = desired
+        DebugLog.d("GW", if (p == null) "presence CLEAR sent" else "presence SET ${p.name}")
         val acts = JSONArray()
         if (p != null) {
             val a = JSONObject()
