@@ -1,0 +1,3 @@
+<resources>
+    <string name="a11y_description">Mendeteksi aplikasi/game yang sedang dibuka untuk Discord Rich Presence. Hanya membaca nama package aplikasi di layar depan; tidak membaca isi layar.</string>
+</resources>

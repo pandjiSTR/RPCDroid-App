@@ -1,0 +1,7 @@
+<resources>
+    <!-- DayNight supaya tidak ada kilatan putih di dark mode sebelum Compose tampil -->
+    <style name="Theme.App" parent="android:Theme.DeviceDefault.DayNight">
+        <item name="android:windowActionBar">false</item>
+        <item name="android:windowNoTitle">true</item>
+    </style>
+</resources>
